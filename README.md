@@ -7,6 +7,7 @@ GWASzoom requires 10 input parameters to work:
 1) The list of main markers. The region of each of these markers will be inspected, and output files will be generated for each of these markers.
 2) A file in Hapmap format, with information of markers from dataset 1, including map position, genotyping, etc. The typical Hapmap format has the next columns: rs	alleles	c	pos	strand	assembly	center	protLSID	assayLSID	panelLSID	QCCode	{Genotypes,...}. Check the Hapmap format elsewhere for more information. Note that to be used with GWASzoom the header must no contain "#", which is typical of many Hapmap files. Just remove the "#" from its header before running GWASzoom.
 3) A tabular file with the values to plot for each marker of dataset 1. It must have 2 columns, with a header including "SNP" and "P.value" column names. Note that this file can be obtained very easily from output produced by GWAS tools (e.g. GAPIT).
+Note that the information of markers from parameter 1) should come from data in files 2) and 3).
 4) A file in Hapmap format, with information of markers from dataset 2. Check parameter 2) for more info.
 5) A tabular file with the values to plot for each marker of dataset 2. Check parameter 3) for more info.
 6) A BED file with position information of other features (e.g. genes).
@@ -18,3 +19,7 @@ GWASzoom requires 10 input parameters to work:
 An example of run would be (in bash):
 
 Rscript ./GWASzoom.R GWASmarkers.list ds1_markers.hmp ds1_markers.GWAS ds2_markers_hmp ds2_markers.GWAS genes.bed genes.txt 100000 GWASzoom_output phenotypic_data.tsv
+
+GWASzoom generates 3 main output types, in a few files:
+- A plot showing the association values of both marker datasets. This plot is shown in 2 files. The difference between them is that one file shows a smooth line of values of dataset2, whereas the other shows no trend lines of any kind.
+- 

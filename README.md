@@ -14,3 +14,7 @@ GWASzoom requires 10 input parameters to work:
 8) A number, which indicates the width of the region to inspect, in basepairs. For example, if its value is 10000, the region will be in the interval between -10000 and +10000 around the current marker.
 9) Output directory, where GWASzoom will put the output files.
 10) A tab-separated file with phenotypic data. Note that the genotypes in this file should match the genotypes in the previous files 3) and 5).
+
+An example of run would be (in bash):
+
+Rscript ./GWASzoom.R GWASmarkers.list ds1_markers.hmp ds1_markers.GWAS ds2_markers_hmp ds2_markers.GWAS genes.bed genes.txt 100000 GWASzoom_output phenotypic_data.tsv

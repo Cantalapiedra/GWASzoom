@@ -22,4 +22,5 @@ Rscript ./GWASzoom.R GWASmarkers.list ds1_markers.hmp ds1_markers.GWAS ds2_marke
 
 GWASzoom generates 3 main output types, in a few files:
 - A plot showing the association values of both marker datasets. This plot is shown in 2 files. The difference between them is that one file shows a smooth line of values of dataset2, whereas the other shows no trend lines of any kind.
-- 
+- A file showing graphycal genotypes of all the markers, along with the phenotypic profile. Samples are clustered based on genotyping.
+- A tabular file, in tab-separated plain format, showing marker and genes information.

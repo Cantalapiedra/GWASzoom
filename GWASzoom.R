@@ -428,7 +428,7 @@ graphical_genotypes <- function(marker, marker_hapmap_data, other_markers_data, 
 
 #############################################
 ## Plot
-generate_plots <- function(marker, plottable, ldr2_data){
+generate_plots <- function(marker, plottable, ldr2_data, value_colname){
   
   cat("Generating plots...\n", file=stderr())
   
@@ -476,7 +476,7 @@ generate_plots <- function(marker, plottable, ldr2_data){
     
   bfplot = bfplot +
     theme_bw()+
-    labs(x = "Position in Mbp", y = "-log10P", title = "")+
+    labs(x = "Position in Mbp", y = value_colname, title = "")+
     theme(plot.title = element_text(hjust = 0.5),
             legend.background = element_rect(fill="gray90"),
             legend.position = "bottom",
@@ -734,7 +734,7 @@ process_marker <- function(x){
   
   #print(plottable, file=stderr())
   
-  generate_plots(marker, plottable, ldr2_data)
+  generate_plots(marker, plottable, ldr2_data, value_colname)
   
   graphical_genotypes(marker, marker_hapmap_data, other_markers_hapmap_data, marker_excap_hapmap_data,
                       pheno_data, ldr2_data)

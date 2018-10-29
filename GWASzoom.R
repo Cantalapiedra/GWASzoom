@@ -25,13 +25,18 @@ suppressMessages(library("biganalytics"))
 suppressMessages(library("optparse"))
 suppressMessages(library(gplots))
 suppressMessages(library(leaflet))
+suppressMessages(library(varhandle))
 
 ## Parameters specification
 
 option_list = list(
-    make_option("--marker", type="character", default=NULL, 
-        help="A file with the name of the marker to be processed.
-        This will be the main marker; the zoom will be performed to its position.",
+	make_option("--name", type="character", default = NULL,
+		help="A unique name/identifier for this analysis (the marker, locus, region, ...)
+						to be used for output filenames",
+		metavar="char"),
+	
+    make_option("--markers", type="character", default=NULL, 
+        help="A file with the ID of the markers to be treated as main markers.",
         metavar="char"),
     
     make_option("--markers_hapmap", type="character", default=NULL, 
@@ -100,12 +105,20 @@ option_list = list(
 opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
-if (is.null(opt$marker)){
-    message("Missing the --marker parameter, which is mandatory.")
+if (is.null(opt$name)){
+    message("Missing the --name parameter, which is mandatory.")
     print_help(opt_parser)
     stop()
 } else {
-    markers = opt$marker
+    name = opt$name
+}
+
+if (is.null(opt$markers)){
+    message("Missing the --markers parameter, which is mandatory.")
+    print_help(opt_parser)
+    stop()
+} else {
+    markers = opt$markers
 }
 
 if (is.null(opt$markers_hapmap)){
@@ -160,21 +173,21 @@ LDTHRES = opt$ldthres
 verbose = opt$verbose
 
 if (verbose == TRUE) {
-cat("Arguments:\n", file=stderr())
-cat(paste("\t", markers, "\n"), file=stderr())
-cat(paste("\t", markers_hapmap, "\n"), file=stderr())
-cat(paste("\t", markers_values, "\n"), file=stderr())
-cat(paste("\t", excap_hapmap, "\n"), file=stderr())
-cat(paste("\t", excap_values, "\n"), file=stderr())
-cat(paste("\t", pheno_file, "\n"), file=stderr())
-cat(paste("\t", outdir, "\n"), file=stderr())
-cat(paste("\t", interval, "\n"), file=stderr())
-cat(paste("\t", gwastype, "\n"), file=stderr())
-cat(paste("\t", alleles_format, "\n"), file=stderr())
-cat(paste("\t", ldr2file, "\n"), file=stderr())
+write("Arguments:", file=stderr())
+write(paste("\t", name), file=stderr())
+write(paste("\t", markers), file=stderr())
+write(paste("\t", markers_hapmap), file=stderr())
+write(paste("\t", markers_values), file=stderr())
+write(paste("\t", excap_hapmap), file=stderr())
+write(paste("\t", excap_values), file=stderr())
+write(paste("\t", pheno_file), file=stderr())
+write(paste("\t", outdir), file=stderr())
+write(paste("\t", interval), file=stderr())
+write(paste("\t", gwastype), file=stderr())
+write(paste("\t", alleles_format), file=stderr())
+write(paste("\t", ldr2file), file=stderr())
 #cat(paste("\t", genes_annot, "\n"), file=stderr())
-cat(paste("\t", genes_map, "\n"), file=stderr())
-cat("\n", file=stderr())
+write(paste("\t", genes_map), file=stderr())
 }
 
 ########################################### Functions
@@ -291,13 +304,20 @@ genes_table <- function(marker, marker_hapmap_data, other_markers_data, excap_ha
 
 ### Auxiliar function to convert ATGC genotypes to numeric ones
 numerical_genotype <- function(genotype){
+  
+  MISSING = -1
+  HETERO = 0.5
+  
   #print(genotype, file=stderr())
+  
   nts <- unique(genotype)
+  
+  nts <- nts[!(nts %in% "NN")]
   
   #print(nts, file=stderr())
   
   if (alleles_format == "biallelic") {
-        genotype[genotype %in% "NN"] = -1
+        genotype[genotype %in% "NN"] = MISSING
         for (nt in nts){
             #print(nt, file=stderr())
             
@@ -305,7 +325,7 @@ numerical_genotype <- function(genotype){
             #print(unnt, file=stderr())
             
             if (nchar(unnt)>1) {
-              genotype[genotype == nt] = -1
+              genotype[genotype == nt] = HETERO
             } else {
               genotype[genotype == nt] = which(nts == nt) - 1
             }
@@ -313,7 +333,8 @@ numerical_genotype <- function(genotype){
   } else {
         nts <- nts[nts %in% c("A", "C", "G", "T")]
         
-        genotype[!genotype %in% nts] = -1 # for all which are not in ACGT
+        genotype[!genotype %in% nts] = MISSING # for all which are not in ACGT
+		genotype[genotype == "h"] = HETERO
         # For those in ACGT:
         for (nt in nts){
           genotype[genotype == nt] = which(nts == nt) - 1
@@ -321,6 +342,7 @@ numerical_genotype <- function(genotype){
   }
   
   #print(genotype, file=stderr())
+  
   return(genotype)
 }
 
@@ -331,16 +353,13 @@ numerical_genotypes <- function(genotypes){
   return(t(genotypes))
 }
 
-################# Graphical genotypes
-graphical_genotypes <- function(marker, marker_hapmap_data, other_markers_data, excap_hapmap_data,
+# graphical genotypes up to positions with a given LD threshold (parameter x)
+graphical_genotypes_ld <- function(x, name, marker_hapmap_data, other_markers_data, excap_hapmap_data,
                                 pheno_data, ldr2_data){
+	#print(head(ldr2_data), file=stderr())
+  ldr2_data_filtered <- ldr2_data %>% filter(r2 >= x)
   
-  cat("Generating graphical genotypes...\n", file=stderr())
-  
-  #print(head(ldr2_data), file=stderr())
-  ldr2_data_filtered <- ldr2_data %>% filter(r2 >= LDTHRES)
-  
-  #print(head(ldr2_data_filtered), file=stderr())
+  #print(head(ldr2_data_filtered))
   
   minpos = min(ldr2_data_filtered$pos)
   maxpos = max(ldr2_data_filtered$pos)
@@ -362,7 +381,7 @@ graphical_genotypes <- function(marker, marker_hapmap_data, other_markers_data, 
 
     genotypes <- genotypes %>% filter(pos >= minpos) %>% filter(pos <= maxpos)
   
-  rownames(genotypes) <- unlist(select(genotypes, rs))
+  rownames(genotypes) <- make.names(unlist(select(genotypes, rs)), unique=TRUE)
   genotypes <- select(genotypes, -rs, -pos)
   #print(head(genotypes))
   
@@ -380,10 +399,10 @@ graphical_genotypes <- function(marker, marker_hapmap_data, other_markers_data, 
   
   all <- rbind(all, t(phenotypes))
   ## Write the table to a file
-  outfile=paste(outdir, "/", marker, ".genotypes.tab", sep="")
+  outfile=paste(outdir, "/", name, ".genotypes.", x, ".tab", sep="")
   write.table(all, outfile, quote = FALSE, sep = "\t", row.names = TRUE, col.names = NA)
   
-  cat("Table of graphical genotypes was written.\n", file=stderr());
+  write("Table of graphical genotypes was written.", file=stderr());
   
   gmat <- apply(genotypes, 2, as.numeric)
   rownames(gmat) <- rownames(genotypes)
@@ -393,16 +412,24 @@ graphical_genotypes <- function(marker, marker_hapmap_data, other_markers_data, 
   ########## Plot of graphical genotypes
   ##########
   
+  write("Creating plot of graphical genotypes...", file=stderr());
+  
   envrange <- select(phenotypes, -Genotype)
   minrange = min(envrange, na.rm = T)# - 1
   maxrange = max(envrange, na.rm = T)# + 1
   
   colsidecolors <- colorNumeric(c("red", "gray", "blue"), minrange:maxrange)
-  colsidecolors <- colsidecolors(envrange)
+
+  colsidecolors <- colsidecolors(envrange$Phenotype)
   
-  mypalette <- colorRampPalette(c("red", "gray", "blue"))(n = 1000)
+  #print(envrange$Phenotype, file=stderr())
+  #print(minrange, file=stderr())
+  #print(maxrange, file=stderr())
+  #print(colsidecolors, file=stderr())
   
-  outfile=paste(outdir, "/", marker, ".genotypes.pdf", sep="")
+  mypalette <- colorRampPalette(c("gray", "red", "blue"))(n = 1000)
+  
+  outfile=paste(outdir, "/", name, ".genotypes.", x, ".pdf", sep="")
   pdf(outfile, paper="a4")
   # outfile=paste(outdir, "/", markeralt, ".", env, ".", type, ".genotypes.tiff", sep="")
   # tiff(outfile);#, height = 21, width = 21, units = "in", res = 300)
@@ -423,14 +450,25 @@ graphical_genotypes <- function(marker, marker_hapmap_data, other_markers_data, 
   dev.off()
   
   cat(paste("Plot of graphical genotypes saved as ", outfile, "\n", sep=""), file=stderr());
+}
+################# Graphical genotypes
+graphical_genotypes <- function(name, marker_hapmap_data, other_markers_data, excap_hapmap_data,
+                                pheno_data, ldr2_data){
+  
+  write("Generating graphical genotypes...", file=stderr())
+  
+  ldthreslist = c(0.0, LDTHRES)
+  
+  devnull <- lapply(ldthreslist, graphical_genotypes_ld, name, marker_hapmap_data, other_markers_data, excap_hapmap_data,
+                                pheno_data, ldr2_data)
   
 }
 
 #############################################
 ## Plot
-generate_plots <- function(marker, plottable, ldr2_data, value_colname){
+generate_plots <- function(name, plottable, ldr2_data, value_colname){
   
-  cat("Generating plots...\n", file=stderr())
+  write("Generating plots...", file=stderr())
   
   #print(head(plottable), file=stderr())
   
@@ -467,8 +505,8 @@ generate_plots <- function(marker, plottable, ldr2_data, value_colname){
                                       alpha("black", 0.8), # LDr2
                                       alpha("blue", 1.0), # other_markers
                                       alpha("blue", 1.0)), # main marker
-                       breaks=c("B_GWAS", "gene", "LDr2", "other_markers", paste("Z",marker, sep="")),
-                       labels=c("Markers", "Genes", "LD", "Others", marker))+
+                       breaks=c("B_GWAS", "gene", "LDr2", "other_markers", "Zmain"), #paste("Z",marker, sep="")),
+                       labels=c("Markers", "Genes", "LD", "Others", "Main"))+ #marker))+
     scale_shape_manual("", values=c(16, 2, 16, 16, 18), guide=FALSE)+
     scale_linetype_manual("", values=c(1,1,1,1,1), guide=FALSE)+
     scale_size_manual("", values=c(2.0, 2.5, 0.3, 3.0, 5.0), guide=FALSE)+
@@ -491,7 +529,7 @@ generate_plots <- function(marker, plottable, ldr2_data, value_colname){
   gt <- bfplot
   
   # As TIFF
-  outfile=paste(outdir, "/", marker, ".tiff", sep="")
+  outfile=paste(outdir, "/", name, ".tiff", sep="")
   tiff(outfile, height = 7, width = 7, units = "in", res = 300)
   grid.arrange(gt, nrow=1, ncol=1, newpage=FALSE)
   
@@ -499,8 +537,8 @@ generate_plots <- function(marker, plottable, ldr2_data, value_colname){
   cat(paste("Plot saved as ", outfile, "\n", sep=""), file=stderr())
   
   # As table
-  outfile=paste(outdir, "/", marker, ".tsv", sep="")
-  write.table(plottable, file=outfile, sep="\t")
+  outfile=paste(outdir, "/", name, ".tsv", sep="")
+  write.table(plottable, file=outfile, sep="\t", quote = FALSE)
   cat(paste("Table saved as ", outfile, "\n", sep=""), file=stderr())
   
   # The same plot but with smooth loess adjusted function
@@ -511,7 +549,7 @@ generate_plots <- function(marker, plottable, ldr2_data, value_colname){
                     color=type, linetype=type, size=type),
                 method=loess, size=.5, se=TRUE, level=0.99)
 
-  outfile=paste(outdir, "/", marker, ".smooth.tiff", sep="")
+  outfile=paste(outdir, "/", name, ".smooth.tiff", sep="")
   tiff(outfile, height = 7, width = 7, units = "in", res = 300)
   grid.arrange(gt_smooth, nrow=1, ncol=1, newpage=FALSE)
   
@@ -524,224 +562,261 @@ f_log <- function(x){
     return(-log10(x))
 }
 
+############
+create_pos_rows <- function(marker_pos, marker, marker_pvalue, gwas_type){
+	
+	marker_row = c()
+	
+	# The "Z" is to make sure that the marker is the last series
+	# (see also the excap markers starting with "B")
+	if (gwastype == "pvalue"){
+	  marker_row = c(marker_ID = marker, mbpos = marker_pos/1000000, 
+													var = f_log(marker_pvalue),
+													type = "Zmain")
+													#type = paste("Z", marker, sep=""))
+	} else {
+	  marker_row = c(marker_ID = marker, mbpos = marker_pos/1000000, 
+													var = marker_pvalue,
+													type = "Zmain")
+													#type = paste("Z", marker, sep=""))
+	}
+	
+	return(marker_row)
+}
+
+create_markers_rows <- function(marker, markers_hapmap_data, markers_values_data, gwas_type){
+	marker_hapmap <- filter(markers_hapmap_data, rs == marker)
+	marker_pos <- marker_hapmap[,4]
+	marker_pvalue <- filter(markers_values_data, SNP == marker)[1,2]
+	
+	marker_rows <- lapply(marker_pos, create_pos_rows, marker, marker_pvalue, gwas_type)
+	
+	#print(marker_rows)
+	
+	marker_rows <- do.call(rbind, marker_rows)
+	#print(marker_rows)
+	
+	return(marker_rows)
+}
+
 ################################################
 ### Main function for each single marker
-process_marker <- function(x){
-  
-  marker <- as.character(unlist(x))
-  cat("\n**** Processing marker:", marker, "\n\n", file=stderr())
-  
-  ### Obtain pvalue of marker
-  #print(head(markers_values_data), file=stderr())
-  marker_pvalue <- filter(markers_values_data, SNP == marker)[,2]
-  #print(paste("Previous P.value:", marker_pvalue), file=stderr())
-  
-  # this is the association value column name
-  value_colname = colnames(markers_values_data)[[2]]
-  
-  ### Obtain position of the marker
-  marker_hapmap_data <- filter(markers_hapmap_data, rs == marker)
-  #print(marker_hapmap_data, file=stderr())
-  marker_chrom = marker_hapmap_data[1,3]
-  library(varhandle)
-  marker_chrom <- unfactor(marker_chrom)
-  marker_pos = marker_hapmap_data[1,4]
-  cat(paste("Chr:", marker_chrom, ", Pos:", marker_pos, "\n"), file=stderr())
-  
-  ### Interval
-  if (as.numeric(interval) > 0) {
-    pos_start = as.numeric(marker_pos) - as.numeric(interval)
-    if (pos_start < 0) pos_start = 0;
-    pos_end = as.numeric(marker_pos) + as.numeric(interval)
-    
-  } else {
-    other_markers_hapmap_data <- filter(markers_hapmap_data, rs %in% markers_values_data$SNP &
-                                                             c == marker_chrom)
-    
-    marker_excap_hapmap_data <- filter(excap_hapmap_data, rs %in% excap_values_data$SNP &
-                                                          c == marker_chrom)
-    
-    pos_start_other = min(other_markers_hapmap_data$pos)
-    pos_start_excap = min(marker_excap_hapmap_data$pos)
-    pos_start = min(c(marker_pos, pos_start_other, pos_start_excap))
-    
-    pos_end_other = max(other_markers_hapmap_data$pos)
-    pos_end_excap = max(marker_excap_hapmap_data$pos)
-    pos_end = max(c(marker_pos, pos_end_other, pos_end_excap))
-  }
-  
-  cat(paste("Interval:", pos_start, "-", pos_end, "\n"), file=stderr())
-  
-  ### Obtain other markers from the original set in the interval
-  # defined by the position of the original marker plus the interval parameter
-  other_markers_hapmap_data <- filter(markers_hapmap_data, c == marker_chrom &
-                                                            pos >= pos_start &
-                                                            pos <= pos_end &
-                                                            rs != marker)
-  
-  other_markers_data <- select(other_markers_hapmap_data, rs, pos) %>%
-                              mutate(mbpos = pos / 1000000) %>%
-                              select(-pos) %>%
-                              mutate(type = "other_markers")
-    
-  if (verbose == TRUE) { print(paste("Num other original markers found:", nrow(other_markers_data)), file=stderr()) }
-  
-  # obtain their pvalues
-  other_markers_data = left_join(other_markers_data, markers_values_data, by = c("rs" = "SNP"))
-  
-  if (gwastype == "pvalue"){ # -log10 of the 'value_colname' column
-  
-    other_markers_data <- mutate(other_markers_data,
-                                var = ifelse(is.na(other_markers_data[,value_colname]), 0,
-                                            -f_log(other_markers_data[,value_colname])))
-    
-    other_markers_data <- select(other_markers_data, -!!value_colname, marker_ID = rs)
-    
-    
-    #other_markers_data <- mutate(other_markers_data, var = ifelse(is.na(P.value), 0, f_log(P.value))) %>%
-    #                    select(-P.value, marker_ID = rs)
-        
-  } else { # the value of the 'value_colname' column
-    other_markers_data <- mutate(other_markers_data,
-                                var = ifelse(is.na(other_markers_data[,value_colname]), 0,
-                                            other_markers_data[,value_colname]))
-    
-    other_markers_data <- select(other_markers_data, -!!value_colname, marker_ID = rs)
-  }
-  
-  ### Obtain excap markers in the interval
-  # defined by the position of the original marker plus the interval parameter
-  
-  marker_excap_hapmap_data <- filter(excap_hapmap_data, c == marker_chrom &
-                                                        pos >= pos_start &
-                                                        pos <= pos_end)
-  
-  if (verbose == TRUE) { print(paste("Num excap markers found:", nrow(marker_excap_hapmap_data)), file=stderr()) }
-  #print(t(head(t(head(marker_excap_hapmap_data)))), file=stderr())
-  excap_markers_list = select(marker_excap_hapmap_data, rs)[,1]
-  #print(head(excap_markers_list), file=stderr())
-  
-  # Obtain GWAS values of those markers
-  marker_excap_values_data <- filter(excap_values_data, SNP %in% excap_markers_list)
-  if (verbose == TRUE) { print(paste("Num GWAS results found:", nrow(marker_excap_values_data)), file=stderr()) }
-  #print(head(marker_excap_values_data), file=stderr())
-  
-  marker_excap_values_no_data <- excap_markers_list[!excap_markers_list %in% select(marker_excap_values_data, SNP)[,1]]
-  #print(head(marker_excap_values_no_data), file=stderr())
-  if (verbose == TRUE) { print(paste("Num GWAS results NOT found:", length(marker_excap_values_no_data)), file=stderr()) }
-  
-  # Assign 0 to value_colname column of not found markers
-  marker_excap_values_no_data = data.frame(marker_excap_values_no_data)
-  colnames(marker_excap_values_no_data) = c("SNP")
-  marker_excap_values_no_data <- mutate(marker_excap_values_no_data, !!value_colname := NA)
-  #print(head(data.frame(marker_excap_values_no_data)), file=stderr())
-  
-  #### Join all the data of excap markers
-  marker_excap_values_data <- rbind(marker_excap_values_data, marker_excap_values_no_data)
-  
-  if (gwastype == "pvalue"){  # -log10 of the 'value_colname' column
-    #marker_excap_values_data <- mutate(marker_excap_values_data, log10P = ifelse(is.na(P.value), 0, f_log(P.value)))
-    
-    marker_excap_values_data <- mutate(marker_excap_values_data,
-                                var = ifelse(is.na(marker_excap_values_data[,value_colname]), 0,
-                                            -f_log(marker_excap_values_data[,value_colname])))
-    
-    #marker_excap_values_data <- select(marker_excap_values_data, value_colname, marker_ID = rs)
-    
-  } else { # the value of the 'value_colname' column
-    #marker_excap_values_data <- mutate(marker_excap_values_data, log10P = ifelse(is.na(P.value), 0, P.value))
-    
-    marker_excap_values_data <- mutate(marker_excap_values_data,
-                                var = ifelse(is.na(marker_excap_values_data[,value_colname]), 0,
-                                            marker_excap_values_data[,value_colname]))
-    
-    #marker_excap_values_data <- select(marker_excap_values_data, value_colname, marker_ID = SNP)
-    
-  }
-  
-  # Join association values with map positions
-  ### map positions --> marker_excap_hapmap_data
-  ### association values --> marker_excap_values_data
-    
-  marker_excap_data <- inner_join(marker_excap_hapmap_data, marker_excap_values_data, by = c("rs" = "SNP")) %>%
-    mutate(mbpos = as.numeric(as.character(pos))/1000000) 
-    
-  # the last line is to reduce the magnitude of map positions (so that the value can be plotted easily)
-  
-  # Prepare for plot
-  
-  marker_excap_data <- select(marker_excap_data, marker_ID = rs, mbpos = mbpos, var = var) %>% 
-    mutate(type = "B_GWAS")
-  # The "B" was used in the original script to make sure that the series with excap markers
-  # was the second after the dummy series, so that the plot colors, etc
-  # were applied correctly
-  
-  ### Therefore, marker_excap_data is the table to plot markers and pvalues
-  
-  ### Genes data
-  
-  # Obtain genes in the interval
-  if (verbose == TRUE) { print(paste("Num total genes", nrow(genes_map_data)), file=stderr()) }
-  
-  marker_genes_map_data <- filter(genes_map_data, chrom == marker_chrom &
-                                       ((start >= pos_start & start <= pos_end) |
-                                       (end >= pos_start & end <= pos_end) | 
-                                         (start <= pos_start & end >= pos_end)))
-  
-  if (verbose == TRUE) { print(paste("Num genes in interval:", nrow(marker_genes_map_data)), file=stderr()) }
-  
-  # Obtain mid position of gene
-  marker_genes_map_data <- mutate(marker_genes_map_data, pos = round(start + (end-start)/2))
-  # The position to plot (mbmid) will be the mid position, unless the latter is outside the interval
-  marker_genes_map_data <- mutate(marker_genes_map_data, mbmid = (ifelse(pos < pos_start, end, 
-                                                                    ifelse(pos > pos_end, start, 
-                                                                                            pos)))
-                                                                /1000000) # show in Mbp
-  #print(head(marker_genes_map_data, file=stderr()))
-  
-  # Prepare for the plot
-  genestable <- select(marker_genes_map_data, mbpos = mbmid, marker_ID = gene) %>% 
-    mutate(var = 0.0) %>% 
-    mutate(type = "gene")
-  
-  #print(head(genestable, file=stderr()))
-  
-  ### Add the original marker to the table of markers
-  # -log10(marker_pvalue)
-  
-  if (gwastype == "pvalue"){
-    marker_excap_data <- rbind(marker_excap_data, c(marker_ID = marker, mbpos = marker_pos/1000000, 
-                                                  var = f_log(marker_pvalue),
-                                                  type = paste("Z", marker, sep="")))
-  } else {
-    marker_excap_data <- rbind(marker_excap_data, c(marker_ID = marker, mbpos = marker_pos/1000000, 
-                                                  var = marker_pvalue,
-                                                  type = paste("Z", marker, sep="")))
-  }
-  
-  # The "Z" is to make sure that the marker is the last series
-  # (see above "The B...")
-  #print(head(marker_excap_data), file=stderr())
-  #print(head(other_markers_data), file=stderr())
-  
-  ## Prepare LD r2 data
-  
-  ldr2_data <- mutate(ldr2_data, mbpos = pos / 1000000) %>% mutate(type = "LDr2")
-  
-  ### Join all the tables
-  
-  plottable <- marker_excap_data %>% rbind(other_markers_data) %>% rbind(genestable) %>% arrange(type)
-  
-  #print(plottable, file=stderr())
-  
-  generate_plots(marker, plottable, ldr2_data, value_colname)
-  
-  graphical_genotypes(marker, marker_hapmap_data, other_markers_hapmap_data, marker_excap_hapmap_data,
-                      pheno_data, ldr2_data)
+process_markers <- function(markers_list){
+	
+	#marker <- as.character(unlist(x))
+	cat("\n**** Processing markers of ", name, " ...", "\n\n", file=stderr())
+	
+	#print(markers_list)
+	
+	# this is the association value column name (logP, BF, ...)
+	value_colname = colnames(markers_values_data)[[2]]
+	
+	### Obtain position of the marker
+	marker_hapmap_data <- filter(markers_hapmap_data, rs %in% markers_list)
+	#print(marker_hapmap_data)
+	
+	### Obtain markers chromosome
+	  
+	markers_chroms = unfactor(marker_hapmap_data[,3])
+	
+	marker_chrom = unique(markers_chroms)
+	
+	if (length(marker_chrom) != 1){
+	  write("Either no chromosome was found, or more than one for the list of markers provided.", file=stderr())
+	  write("GWASzoom is intended to work in a single locus or region, so a single chromosome position is required.", file=stderr())
+	  return(-1)
+	} else {
+	  marker_chrom = marker_chrom[[1]]
+	}
+	
+	markers_pos = marker_hapmap_data[,4]
+	markers_pos_downstream = min(markers_pos)
+	markers_pos_upstream = max(markers_pos)
+	
+	cat(paste("Chr:", marker_chrom, ", Downstream pos:", markers_pos_downstream,
+			  ", Upstream pos: ", markers_pos_upstream, "\n"), file=stderr())
+	
+	### Interval
+	if (as.numeric(interval) > 0) {
+	  pos_start = as.numeric(marker_pos_downstream) - as.numeric(interval)
+	  if (pos_start < 0) pos_start = 0;
+	  pos_end = as.numeric(marker_pos_upstream) + as.numeric(interval)
+	  
+	} else {
+	  other_markers_hapmap_data <- filter(markers_hapmap_data, rs %in% markers_values_data$SNP &
+															   c == marker_chrom)
+	  
+	  marker_excap_hapmap_data <- filter(excap_hapmap_data, rs %in% excap_values_data$SNP &
+															c == marker_chrom)
+	  
+	  pos_start_other = min(other_markers_hapmap_data$pos)
+	  pos_start_excap = min(marker_excap_hapmap_data$pos)
+	  #pos_start = min(c(marker_pos_downstream, pos_start_other, pos_start_excap))
+	  pos_start = min(c(pos_start_other, pos_start_excap))
+	  
+	  pos_end_other = max(other_markers_hapmap_data$pos)
+	  pos_end_excap = max(marker_excap_hapmap_data$pos)
+	  #pos_end = max(c(marker_pos_upstream, pos_end_other, pos_end_excap))
+	  pos_end = max(c(pos_end_other, pos_end_excap))
+	}
+	
+	cat("Interval:", pos_start, "-", pos_end, "\n", file=stderr())
+	
+	### Obtain other markers from the original set in the interval
+	# defined by the position of the original marker plus the interval parameter
+	other_markers_hapmap_data <- filter(markers_hapmap_data, c == marker_chrom &
+															  pos >= pos_start &
+															  pos <= pos_end &
+															  !(rs %in% markers_list))
+	
+	other_markers_data <- select(other_markers_hapmap_data, rs, pos) %>%
+								mutate(mbpos = pos / 1000000) %>%
+								select(-pos) %>%
+								mutate(type = "other_markers")
+	  
+	if (verbose == TRUE) { cat("Num other original markers found:", nrow(other_markers_data), "\n", file=stderr()) }
+	
+	# obtain their pvalues
+	other_markers_data = left_join(other_markers_data, markers_values_data, by = c("rs" = "SNP"))
+	
+	if (gwastype == "pvalue"){ # -log10 of the 'value_colname' column
+	
+	  other_markers_data <- mutate(other_markers_data,
+								  var = ifelse(is.na(other_markers_data[,value_colname]), 0,
+											  -f_log(other_markers_data[,value_colname])))
+	  
+	  other_markers_data <- select(other_markers_data, -!!value_colname, marker_ID = rs)
+	  
+	  
+	  #other_markers_data <- mutate(other_markers_data, var = ifelse(is.na(P.value), 0, f_log(P.value))) %>%
+	  #                    select(-P.value, marker_ID = rs)
+		  
+	} else { # the value of the 'value_colname' column
+	  other_markers_data <- mutate(other_markers_data,
+								  var = ifelse(is.na(other_markers_data[,value_colname]), 0,
+											  other_markers_data[,value_colname]))
+	  
+	  other_markers_data <- select(other_markers_data, -!!value_colname, marker_ID = rs)
+	}
+	
+	### Obtain excap markers in the interval
+	# defined by the position of the original marker plus the interval parameter
+	
+	marker_excap_hapmap_data <- filter(excap_hapmap_data, c == marker_chrom &
+														  pos >= pos_start &
+														  pos <= pos_end)
+	
+	if (verbose == TRUE) { cat("Num excap markers found:", nrow(marker_excap_hapmap_data), "\n", file=stderr()) }
+	#print(t(head(t(head(marker_excap_hapmap_data)))), file=stderr())
+	excap_markers_list = select(marker_excap_hapmap_data, rs)[,1]
+	#print(head(excap_markers_list), file=stderr())
+	
+	# Obtain GWAS values of those markers
+	marker_excap_values_data <- filter(excap_values_data, SNP %in% excap_markers_list)
+	if (verbose == TRUE) { cat("Num GWAS results found:", nrow(marker_excap_values_data), "\n", file=stderr()) }
+	#print(head(marker_excap_values_data), file=stderr())
+	
+	marker_excap_values_no_data <- excap_markers_list[!excap_markers_list %in% select(marker_excap_values_data, SNP)[,1]]
+	#print(head(marker_excap_values_no_data), file=stderr())
+	if (verbose == TRUE) { cat("Num GWAS results NOT found:", length(marker_excap_values_no_data), "\n", file=stderr()) }
+	
+	# Assign 0 to value_colname column of not found markers
+	marker_excap_values_no_data = data.frame(marker_excap_values_no_data)
+	colnames(marker_excap_values_no_data) = c("SNP")
+	marker_excap_values_no_data <- mutate(marker_excap_values_no_data, !!value_colname := NA)
+	#print(head(data.frame(marker_excap_values_no_data)), file=stderr())
+	
+	#### Join all the data of excap markers
+	marker_excap_values_data <- rbind(marker_excap_values_data, marker_excap_values_no_data)
+	
+	if (gwastype == "pvalue"){  # -log10 of the 'value_colname' column
+	  #marker_excap_values_data <- mutate(marker_excap_values_data, log10P = ifelse(is.na(P.value), 0, f_log(P.value)))
+	  
+	  marker_excap_values_data <- mutate(marker_excap_values_data,
+								  var = ifelse(is.na(marker_excap_values_data[,value_colname]), 0,
+											  -f_log(marker_excap_values_data[,value_colname])))
+	  
+	  #marker_excap_values_data <- select(marker_excap_values_data, value_colname, marker_ID = rs)
+	  
+	} else { # the value of the 'value_colname' column
+	  #marker_excap_values_data <- mutate(marker_excap_values_data, log10P = ifelse(is.na(P.value), 0, P.value))
+	  
+	  marker_excap_values_data <- mutate(marker_excap_values_data,
+								  var = ifelse(is.na(marker_excap_values_data[,value_colname]), 0,
+											  marker_excap_values_data[,value_colname]))
+	  
+	  #marker_excap_values_data <- select(marker_excap_values_data, value_colname, marker_ID = SNP)
+	  
+	}
+	
+	# Join association values with map positions
+	### map positions --> marker_excap_hapmap_data
+	### association values --> marker_excap_values_data
+	  
+	marker_excap_data <- inner_join(marker_excap_hapmap_data, marker_excap_values_data, by = c("rs" = "SNP")) %>%
+	  mutate(mbpos = as.numeric(as.character(pos))/1000000) 
+	  
+	# the last line is to reduce the magnitude of map positions (so that the value can be plotted easily)
+	
+	# Prepare for plot
+	
+	marker_excap_data <- select(marker_excap_data, marker_ID = rs, mbpos = mbpos, var = var) %>% 
+	  mutate(type = "B_GWAS")
+	# The "B" was used in the original script to make sure that the series with excap markers
+	# was the second after the dummy series, so that the plot colors, etc
+	# were applied correctly
+	
+	### Therefore, marker_excap_data is the table to plot markers and pvalues
+	
+	### Genes data
+	
+	# Obtain genes in the interval
+	if (verbose == TRUE) { cat("Num total genes", nrow(genes_map_data), "\n", file=stderr()) }
+	
+	marker_genes_map_data <- filter(genes_map_data, chrom == marker_chrom &
+										 ((start >= pos_start & start <= pos_end) |
+										 (end >= pos_start & end <= pos_end) | 
+										   (start <= pos_start & end >= pos_end)))
+	
+	if (verbose == TRUE) { cat("Num genes in interval:", nrow(marker_genes_map_data), "\n", file=stderr()) }
+	
+	# Obtain mid position of gene
+	marker_genes_map_data <- mutate(marker_genes_map_data, pos = round(start + (end-start)/2))
+	# The position to plot (mbmid) will be the mid position, unless the latter is outside the interval
+	marker_genes_map_data <- mutate(marker_genes_map_data, mbmid = (ifelse(pos < pos_start, end, 
+																	  ifelse(pos > pos_end, start, 
+																							  pos)))
+																  /1000000) # show in Mbp
+	
+	# Prepare for the plot
+	genestable <- select(marker_genes_map_data, mbpos = mbmid, marker_ID = gene) %>% 
+	  mutate(var = 0.0) %>% 
+	  mutate(type = "gene")
+	
+	markers_rows = lapply(markers_list, create_markers_rows, markers_hapmap_data, markers_values_data, gwas_type)
 
-    # removed because it was not working properly
-    #genes_table(marker, marker_hapmap_data, other_markers_hapmap_data, marker_excap_hapmap_data,
-    #            marker_genes_map_data, genes_annot_data, plottable)
+	markers_rows <- do.call(rbind, markers_rows)
+	
+	marker_excap_data <- rbind(marker_excap_data, markers_rows)
+	
+	## Prepare LD r2 data
+	
+	ldr2_data <- mutate(ldr2_data, mbpos = pos / 1000000) %>% mutate(type = "LDr2")
+	
+	### Join all the tables
+	
+	plottable <- marker_excap_data %>% rbind(other_markers_data) %>% rbind(genestable) %>% arrange(type)
+	
+	#print(tail(plottable), file=stderr())
+	
+	generate_plots(name, plottable, ldr2_data, value_colname)
+	
+	graphical_genotypes(name, marker_hapmap_data, other_markers_hapmap_data, marker_excap_hapmap_data,
+						pheno_data, ldr2_data)
+	
+	  # removed because it was not working properly
+	  #genes_table(marker, marker_hapmap_data, other_markers_hapmap_data, marker_excap_hapmap_data,
+	  #            marker_genes_map_data, genes_annot_data, plottable)
 }
 
 ########################################### BEGIN
@@ -753,56 +828,51 @@ gmat <- NA
 # This was known as a bug already in 2015
 
 # Reading markers list
-cat("Reading primary markers list...\n", file=stderr())
+write("Reading primary markers list...", file=stderr())
 markers_list <- read.table(markers, header = FALSE)
+markers_list <- unfactor(markers_list$V1)
 
 # Reading markers data
-cat("Reading primary markers hapmap data...\n", file=stderr())
+write("Reading primary markers hapmap data...", file=stderr())
 markers_hapmap_data <- read.table(markers_hapmap, header = TRUE, sep="\t")
-if (verbose == TRUE) { print(t(head(t(head(markers_hapmap_data, 3)))), file=stderr()) }
 
 # Reading markers association values
-cat("Reading primary markers association values...\n", file=stderr())
+write("Reading primary markers association values...", file=stderr())
 markers_values_data <- read.table(markers_values, header = TRUE)
-if (verbose == TRUE) { print(head(markers_values_data, 3), file=stderr()) }
 
 # Reading excap data
-cat("Reading secondary markers hapmap data...\n", file=stderr())
+write("Reading secondary markers hapmap data...", file=stderr())
 excap_hapmap_data <- read.table(excap_hapmap, header = TRUE, sep="\t")
-if (verbose == TRUE) { print(t(head(t(head(excap_hapmap_data, 3)))), file=stderr()) }
 
 # Reading excap association values
-cat("Reading secondary markers association values...\n", file=stderr())
+write("Reading secondary markers association values...", file=stderr())
 excap_values_data <- read.table(excap_values, header = TRUE)
-if (verbose == TRUE) { print(head(excap_values_data, 3), file=stderr()) }
 
 # Reading genes map
-cat("Reading genes map...\n", file=stderr())
+write("Reading genes map...", file=stderr())
 genes_map_data <- read.table(genes_map, header = FALSE)
 colnames(genes_map_data) <- c("chrom", "start", "end", "gene")
-if (verbose == TRUE) { print(head(genes_map_data, 3), file=stderr()) }
 
 ## Removed because this was not working properly
 # Reading genes annotation
 #cat("Reading genes annotation...\n", file=stderr())
 #genes_annot_data <- read.table(genes_annot, header = FALSE, sep = "\t")
 #colnames(genes_annot_data) <- c("gene", "desc")
-#if (verbose == TRUE) { print(head(genes_annot_data, 3), file=stderr()) }
 
 # Reading phenotypic data
-cat("Reading phenotypic data...\n", file=stderr())
+write("Reading phenotypic data...", file=stderr())
 pheno_data <- read.table(pheno_file, header = TRUE, sep = "\t")
 colnames(pheno_data) <- c("Genotype", "Phenotype")
-if (verbose == TRUE) { print(head(pheno_data, 3), file=stderr()) }
 
 # Reading phenotypic data
-cat("Reading LD r2 values...\n", file=stderr())
+write("Reading LD r2 values...", file=stderr())
 ldr2_data <- read.table(ldr2file, header = TRUE, sep = "\t")
-if (verbose == TRUE) { print(head(ldr2_data, 3), file=stderr()) }
 
-# Process each marker
-devnull <- lapply(markers_list[,1], process_marker)
-cat("\nFinished.\n************************\n\n", file=stderr())
+# Perform zoom
+
+devnull <- process_markers(markers_list)
+
+write("\nFinished.\n************************\n", file=stderr())
 q()
 
 ## END
